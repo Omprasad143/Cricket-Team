@@ -3,7 +3,7 @@ const { open } = require("sqlite");
 const sqlite3 = require("sqlite3");
 const path = require("path");
 
-const databasePath = path.join(__dirname, "cricketTeam.db");
+const databasePath = path.join(__dirname, "covid19India.db");
 
 const app = express();
 
@@ -17,6 +17,7 @@ const initializeDbAndServer = async () => {
       filename: databasePath,
       driver: sqlite3.Database,
     });
+
     app.listen(3000, () =>
       console.log("Server Running at http://localhost:3000/")
     );
@@ -28,78 +29,144 @@ const initializeDbAndServer = async () => {
 
 initializeDbAndServer();
 
-const convertDbObjectToResponseObject = (dbObject) => {
+const convertStateDbObjectToResponseObject = (dbObject) => {
   return {
-    playerId: dbObject.player_id,
-    playerName: dbObject.player_name,
-    jerseyNumber: dbObject.jersey_number,
-    role: dbObject.role,
+    stateId: dbObject.state_id,
+    stateName: dbObject.state_name,
+    population: dbObject.population,
   };
 };
 
-app.get("/players/", async (request, response) => {
-  const getPlayersQuery = `
+const convertDistrictDbObjectToResponseObject = (dbObject) => {
+  return {
+    districtId: dbObject.district_id,
+    districtName: dbObject.district_name,
+    stateId: dbObject.state_id,
+    cases: dbObject.cases,
+    cured: dbObject.cured,
+    active: dbObject.active,
+    deaths: dbObject.deaths,
+  };
+};
+
+app.get("/states/", async (request, response) => {
+  const getStatesQuery = `
     SELECT
       *
     FROM
-      cricket_team;`;
-  const playersArray = await database.all(getPlayersQuery);
+      state;`;
+  const statesArray = await database.all(getStatesQuery);
   response.send(
-    playersArray.map((eachPlayer) =>
-      convertDbObjectToResponseObject(eachPlayer)
+    statesArray.map((eachState) =>
+      convertStateDbObjectToResponseObject(eachState)
     )
   );
 });
 
-app.get("/players/:playerId/", async (request, response) => {
-  const { playerId } = request.params;
-  const getPlayerQuery = `
+app.get("/states/:stateId/", async (request, response) => {
+  const { stateId } = request.params;
+  const getStateQuery = `
     SELECT 
-      * 
+      *
     FROM 
-      cricket_team 
+      state 
     WHERE 
-      player_id = ${playerId};`;
-  const player = await database.get(getPlayerQuery);
-  response.send(convertDbObjectToResponseObject(player));
+      state_id = ${stateId};`;
+  const state = await database.get(getStateQuery);
+  response.send(convertStateDbObjectToResponseObject(state));
 });
 
-app.post("/players/", async (request, response) => {
-  const { playerName, jerseyNumber, role } = request.body;
-  const postPlayerQuery = `
+app.get("/districts/:districtId/", async (request, response) => {
+  const { districtId } = request.params;
+  const getDistrictsQuery = `
+    SELECT
+      *
+    FROM
+     district
+    WHERE
+      district_id = ${districtId};`;
+  const district = await database.get(getDistrictsQuery);
+  response.send(convertDistrictDbObjectToResponseObject(district));
+});
+
+app.post("/districts/", async (request, response) => {
+  const { stateId, districtName, cases, cured, active, deaths } = request.body;
+  const postDistrictQuery = `
   INSERT INTO
-    cricket_team (player_name, jersey_number, role)
+    district (state_id, district_name, cases, cured, active, deaths)
   VALUES
-    ('${playerName}', ${jerseyNumber}, '${role}');`;
-  const player = await database.run(postPlayerQuery);
-  response.send("Player Added to Team");
+    (${stateId}, '${districtName}', ${cases}, ${cured}, ${active}, ${deaths});`;
+  await database.run(postDistrictQuery);
+  response.send("District Successfully Added");
 });
 
-app.put("/players/:playerId/", async (request, response) => {
-  const { playerName, jerseyNumber, role } = request.body;
-  const { playerId } = request.params;
-  const updatePlayerQuery = `
-  UPDATE
-    cricket_team
-  SET
-    player_name = '${playerName}',
-    jersey_number = ${jerseyNumber},
-    role = '${role}'
-  WHERE
-    player_id = ${playerId};`;
-
-  await database.run(updatePlayerQuery);
-  response.send("Player Details Updated");
-});
-
-app.delete("/players/:playerId/", async (request, response) => {
-  const { playerId } = request.params;
-  const deletePlayerQuery = `
+app.delete("/districts/:districtId/", async (request, response) => {
+  const { districtId } = request.params;
+  const deleteDistrictQuery = `
   DELETE FROM
-    cricket_team
+    district
   WHERE
-    player_id = ${playerId};`;
-  await database.run(deletePlayerQuery);
-  response.send("Player Removed");
+    district_id = ${districtId} 
+  `;
+  await database.run(deleteDistrictQuery);
+  response.send("District Removed");
 });
+
+app.put("/districts/:districtId/", async (request, response) => {
+  const { districtId } = request.params;
+  const { districtName, stateId, cases, cured, active, deaths } = request.body;
+  const updateDistrictQuery = `
+  UPDATE
+    district
+  SET
+    district_name = '${districtName}',
+    state_id = ${stateId},
+    cases = ${cases},
+    cured = ${cured},
+    active = ${active}, 
+    deaths = ${deaths}
+  WHERE
+    district_id = ${districtId};
+  `;
+
+  await database.run(updateDistrictQuery);
+  response.send("District Details Updated");
+});
+
+app.get("/states/:stateId/stats/", async (request, response) => {
+  const { stateId } = request.params;
+  const getStateStatsQuery = `
+    SELECT
+      SUM(cases),
+      SUM(cured),
+      SUM(active),
+      SUM(deaths)
+    FROM
+      district
+    WHERE
+      state_id=${stateId};`;
+  const stats = await database.get(getStateStatsQuery);
+  response.send({
+    totalCases: stats["SUM(cases)"],
+    totalCured: stats["SUM(cured)"],
+    totalActive: stats["SUM(active)"],
+    totalDeaths: stats["SUM(deaths)"],
+  });
+});
+
+app.get("/districts/:districtId/details/", async (request, response) => {
+  const { districtId } = request.params;
+  const getStateNameQuery = `
+    SELECT
+      state_name
+    FROM
+      district
+    NATURAL JOIN
+      state
+    WHERE 
+      district_id=${districtId};`;
+  const state = await database.get(getStateNameQuery);
+  response.send({ stateName: state.state_name });
+});
+
 module.exports = app;
